@@ -12,6 +12,7 @@ uint8_t  page_count;
 uint8_t  page_address;
 uint16_t page_byte_count;
 uint16_t page_buffer[SPM_PAGESIZE/2+2];
+uint8_t  checksum_program;
 bootmsg_t *bootmsg;
 BF_create(page_table, 224);
 
@@ -32,6 +33,9 @@ void message_rx(message_t *msg, distance_measurement_t *dist) {
         page_buffer[bootmsg->page_offset+1] = bootmsg->word2;
         page_buffer[bootmsg->page_offset+2] = bootmsg->word3;
         page_byte_count += 6;
+        for (int k = 2; k < 8; k++) {
+            checksum_program ^= msg->data[k];
+        }
         if (page_byte_count >= SPM_PAGESIZE && !BF_get(page_table, page_address)) {
             /**
              * Write program page to flash.
@@ -63,8 +67,17 @@ void message_rx(message_t *msg, distance_measurement_t *dist) {
             set_color(RGB(0,0,1));
     } else if (msg->type == BOOTPGM_SIZE) {
         page_total = msg->data[0];
-        if (page_count == page_total)
-            goto_program();
+        if (page_count == page_total) {
+            if (checksum_program == msg->data[1]) {
+                goto_program();
+            } else {
+                set_color(RGB(3,0,0));
+                page_count = 0;
+                page_address = 0;
+                page_byte_count = 0;
+                checksum_program = 0;
+            }
+        }
     } else if (msg->type == BOOT) {
             asm volatile ("jmp 0x7000");
     } else {
@@ -84,6 +97,7 @@ int main() {
     page_count = 0;
     page_address = 0;
     page_byte_count = 0;
+    checksum_program = 0;
     sei();
     kilo_message_rx = message_rx;
     // initialize hardware
